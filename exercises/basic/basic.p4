@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 /* -*- P4_16 -*- */
+// P4言語の基本的な定義をインポート
 #include <core.p4>
+// BMv2 (Behavioral Model version 2) のアーキテクチャ定義をインポート
+// v1modelは標準的なスイッチのパイプラインモデルを提供
 #include <v1model.p4>
 
+// EthernetフレームのEtherTypeフィールドでIPv4を示す定数（16進数で0x0800）
 const bit<16> TYPE_IPV4 = 0x800;
 
 /*************************************************************************
@@ -12,38 +16,46 @@ const bit<16> TYPE_IPV4 = 0x800;
 * The exercise intentionally leaves TODOs for learners to implement.     *
 *************************************************************************/
 
-typedef bit<9>  egressSpec_t;   // Standard BMv2 uses 9 bits for egress_spec
-typedef bit<48> macAddr_t;      // Ethernet MAC address
-typedef bit<32> ip4Addr_t;      // IPv4 address
+// カスタム型定義: コードの可読性を高めるため
+typedef bit<9>  egressSpec_t;   // 出力ポート番号（BMv2では9ビット、最大512ポート）
+typedef bit<48> macAddr_t;      // MACアドレス（48ビット = 6バイト）
+typedef bit<32> ip4Addr_t;      // IPv4アドレス（32ビット = 4バイト）
 
+// Ethernetフレームのヘッダー定義（合計14バイト）
 header ethernet_t {
-    macAddr_t dstAddr;
-    macAddr_t srcAddr;
-    bit<16>   etherType;
+    macAddr_t dstAddr;   // 宛先MACアドレス（6バイト）
+    macAddr_t srcAddr;   // 送信元MACアドレス（6バイト）
+    bit<16>   etherType; // 上位層のプロトコルタイプ（2バイト）例: 0x0800=IPv4
 }
 
+// IPv4ヘッダー定義（最小20バイト）
+// RFC 791に準拠した標準的なIPv4ヘッダー構造
 header ipv4_t {
-    bit<4>    version;
-    bit<4>    ihl;
-    bit<8>    diffserv;
-    bit<16>   totalLen;
-    bit<16>   identification;
-    bit<3>    flags;
-    bit<13>   fragOffset;
-    bit<8>    ttl;
-    bit<8>    protocol;
-    bit<16>   hdrChecksum;
-    ip4Addr_t srcAddr;
-    ip4Addr_t dstAddr;
+    bit<4>    version;        // IPバージョン（IPv4の場合は4）
+    bit<4>    ihl;            // ヘッダー長（Internet Header Length）単位は4バイト
+    bit<8>    diffserv;       // サービス品質（Differentiated Services）
+    bit<16>   totalLen;       // パケット全体の長さ（ヘッダー + データ）
+    bit<16>   identification; // フラグメント識別子
+    bit<3>    flags;          // フラグメント制御フラグ
+    bit<13>   fragOffset;     // フラグメントオフセット
+    bit<8>    ttl;            // Time To Live（ホップ数の上限）
+    bit<8>    protocol;       // 上位層プロトコル（例: 6=TCP, 17=UDP）
+    bit<16>   hdrChecksum;    // ヘッダーのチェックサム
+    ip4Addr_t srcAddr;        // 送信元IPアドレス（4バイト）
+    ip4Addr_t dstAddr;        // 宛先IPアドレス（4バイト）
 }
 
+// ユーザー定義メタデータ構造体
+// パイプライン内で情報を伝達するために使用（この演習では未使用）
 struct metadata {
     /* empty */
 }
 
+// パケット内のすべてのヘッダーをまとめる構造体
+// パーサーで抽出され、パイプライン全体で使用される
 struct headers {
-    ethernet_t   ethernet;
-    ipv4_t       ipv4;
+    ethernet_t   ethernet;  // Ethernetヘッダー
+    ipv4_t       ipv4;      // IPv4ヘッダー
 }
 
 /*************************************************************************
@@ -69,17 +81,40 @@ parser MyParser(packet_in packet,
          *   2) If hdr.ethernet.etherType == TYPE_IPV4 -> parse IPv4
          *   3) Otherwise -> transition accept
          */
-        transition accept;
+        // パーサーの開始状態: まずEthernetヘッダーの解析に遷移
+        transition parse_ethernet;
+    }
+
+    state parse_ethernet {
+        // パケットからEthernetヘッダー（14バイト）を抽出
+        packet.extract(hdr.ethernet);
+        // EtherTypeフィールドの値に応じて次の状態を決定
+        transition select(hdr.ethernet.etherType) {
+            TYPE_IPV4: parse_ipv4;  // IPv4パケットの場合、IPv4ヘッダーの解析へ
+            default: accept;         // それ以外のプロトコルは解析終了
+        }
+    }
+
+    state parse_ipv4 {
+        // パケットからIPv4ヘッダー（20バイト）を抽出
+        packet.extract(hdr.ipv4);
+        // 解析完了: パイプライン処理へ進む
+        transition accept; // パーサーでの処理は終了
     }
 }
 
 
 /*************************************************************************
 ************   C H E C K S U M    V E R I F I C A T I O N   *************
+* パーサーの後、Ingressパイプラインの前に実行される                      *
+* 受信したパケットのチェックサムを検証する（この演習では未実装）         *
 *************************************************************************/
 
 control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
-    apply {  }
+    apply {
+        // チェックサム検証ロジックをここに実装可能
+        // 例: verify_checksum()を使ってIPv4ヘッダーのチェックサムを検証
+    }
 }
 
 
@@ -95,6 +130,8 @@ control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
 
+    // パケットを破棄するアクション
+    // mark_to_drop()を呼ぶことで、パケットは出力されずに破棄される
     action drop() {
         mark_to_drop(standard_metadata);
     }
@@ -125,6 +162,20 @@ control MyIngress(inout headers hdr,
               - (optionally) set hdr.ethernet.srcAddr to the switch MAC for 'port'
               - adjust IPv4 TTL and checksums as needed
         */
+        // 1. 出力ポートを設定（パケットをどのポートから送出するか）
+        standard_metadata.egress_spec = port;
+
+        // 2. Ethernet送信元MACアドレスを更新
+        //    現在の宛先MAC（このスイッチのMAC）を送信元MACに設定
+        hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
+
+        // 3. Ethernet宛先MACアドレスを次のホップのMACに書き換え
+        //    (dstAddrはコントロールプレーンから渡される)
+        hdr.ethernet.dstAddr = dstAddr;
+
+        // 4. IPv4のTTL（Time To Live）を1減らす
+        //    ルーターを1ホップ通過したことを示す
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
     /*********************************************************************
@@ -133,17 +184,20 @@ control MyIngress(inout headers hdr,
      *   - On hit, calls ipv4_forward with *action data* populated by the
      *     control plane when it installs the table entry.
      *********************************************************************/
+    // IPv4ルーティングテーブル
+    // LPM (Longest Prefix Match) を使用して宛先IPアドレスにマッチ
     table ipv4_lpm {
         key = {
-            hdr.ipv4.dstAddr: lpm;
+            hdr.ipv4.dstAddr: lpm;  // 宛先IPアドレスで最長プレフィックスマッチ
+                                     // 例: 10.0.1.0/24は10.0.1.1にマッチ
         }
         actions = {
-            ipv4_forward;
-            drop;
-            NoAction;
+            ipv4_forward;  // マッチした場合、パケットを転送
+            drop;          // マッチしない場合、パケットを破棄
+            NoAction;      // 何もしない（デフォルト）
         }
-        size = 1024;
-        default_action = NoAction();
+        size = 1024;                 // テーブルの最大エントリ数
+        default_action = NoAction(); // デフォルトではマッチしなくても何もしない
     }
 
     apply {
@@ -152,32 +206,44 @@ control MyIngress(inout headers hdr,
          *      if (hdr.ipv4.isValid()) { ipv4_lpm.apply(); }
          *    This skeleton currently applies unconditionally for the exercise.
          */
-        ipv4_lpm.apply();
+        // IPv4ヘッダーが有効（パーサーで正しく抽出された）場合のみ、
+        // LPMテーブルを適用してルーティング処理を実行
+        if (hdr.ipv4.isValid()) {
+            ipv4_lpm.apply();  // 宛先IPアドレスでLPM検索を実行
+        }
     }
 }
 
 /*************************************************************************
 ****************  E G R E S S   P R O C E S S I N G   *******************
-* Often used for queue marks, mirroring, or post-routing edits.          *
+* Ingressパイプラインの後、パケットが出力ポートに送られる前に実行される  *
+* キューイング、ミラーリング、ポストルーティング編集などに使用           *
 *************************************************************************/
 
 control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
-    apply {  }
+    apply {
+        // Egress処理をここに実装可能
+        // 例: パケットのミラーリング、QoSマーキング、統計情報の収集など
+    }
 }
 
 /*************************************************************************
 *************   C H E C K S U M    C O M P U T A T I O N   **************
-* This block shows how to compute IPv4 header checksum when needed.      *
+* Egressパイプラインの後、Deparserの前に実行される                       *
+* パケット送出前にヘッダーのチェックサムを再計算する                     *
 *************************************************************************/
 
 control MyComputeChecksum(inout headers hdr, inout metadata meta) {
      apply {
+        // IPv4ヘッダーのチェックサムを再計算
+        // ヘッダーフィールドを変更した場合（例: TTLの減算）、
+        // チェックサムも更新する必要がある
         update_checksum(
-            hdr.ipv4.isValid(),
-            { hdr.ipv4.version,
-              hdr.ipv4.ihl,
+            hdr.ipv4.isValid(),  // IPv4ヘッダーが有効な場合のみ計算
+            { hdr.ipv4.version,  // チェックサム計算に含めるフィールドのリスト
+              hdr.ipv4.ihl,      // これらのフィールド全体でチェックサムを計算
               hdr.ipv4.diffserv,
               hdr.ipv4.totalLen,
               hdr.ipv4.identification,
@@ -187,8 +253,8 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
               hdr.ipv4.protocol,
               hdr.ipv4.srcAddr,
               hdr.ipv4.dstAddr },
-            hdr.ipv4.hdrChecksum,
-            HashAlgorithm.csum16);
+            hdr.ipv4.hdrChecksum,    // 計算結果を格納するフィールド
+            HashAlgorithm.csum16);   // 16ビットのインターネットチェックサムを使用
     }
 }
 
@@ -206,17 +272,31 @@ control MyDeparser(packet_out packet, in headers hdr) {
             packet.emit(hdr.ipv4);   // per P4_16 spec, emit appends a header
                                      // only if it is valid; no 'if' needed.
         */
+        // ヘッダーをパケットに再構築（シリアライズ）
+        // emit()は有効なヘッダーのみを出力するため、if文は不要
+        packet.emit(hdr.ethernet);  // Ethernetヘッダーを最初に出力
+        packet.emit(hdr.ipv4);      // IPv4ヘッダーを次に出力（有効な場合のみ）
     }
 }
 
 /*************************************************************************
 ***********************  S W I T C H  ***********************************
+* V1Switchアーキテクチャのインスタンス化                                 *
+* パケット処理パイプライン全体を定義する                                 *
 *************************************************************************/
 
+// V1Switchパイプラインのインスタンス化
+// パケットは以下の順序で処理される:
+// 1. MyParser(): パケットからヘッダーを抽出
+// 2. MyVerifyChecksum(): 受信時のチェックサム検証
+// 3. MyIngress(): Ingress処理（ルーティング判断など）
+// 4. MyEgress(): Egress処理（出力ポート固有の処理）
+// 5. MyComputeChecksum(): 送信時のチェックサム再計算
+// 6. MyDeparser(): ヘッダーをパケットに再構築
 V1Switch(
 MyParser(),
 MyVerifyChecksum(),
-MyIngress(),
+MyIngress(), // drop の場合は、これ以降実行されない
 MyEgress(),
 MyComputeChecksum(),
 MyDeparser()
