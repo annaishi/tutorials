@@ -47,20 +47,20 @@ struct headers {
 *********************** P A R S E R  ***********************************
 *************************************************************************/
 
-parser MyParser(packet_in packet,
-                out headers hdr,
-                inout metadata meta,
-                inout standard_metadata_t standard_metadata) {
+parser MyParser(packet_in packet, // 入力パケットそのものを表す型
+                out headers hdr, // 解析結果を格納する構造体
+                inout metadata meta, // 独自に定義したメタデータ
+                inout standard_metadata_t standard_metadata) { // v1model の標準メタデータ
 
-    state start {
-        transition parse_ethernet;
+    state start { 
+        transition parse_ethernet; // 次の状態を指定
     }
 
     state parse_ethernet {
-        packet.extract(hdr.ethernet);
-        transition select(hdr.ethernet.etherType) {
+        packet.extract(hdr.ethernet); // 指定したヘッダー分だけビットを抜き出し、構造体に代入
+        transition select(hdr.ethernet.etherType) { // switch 分
             TYPE_IPV4: parse_ipv4;
-            default: accept;
+            default: accept; // 解析が正常に完了、この後は ingress 処理へ
         }
     }
 
@@ -92,10 +92,10 @@ control MyIngress(inout headers hdr,
     }
 
     action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
-        standard_metadata.egress_spec = port;
-        hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
-        hdr.ethernet.dstAddr = dstAddr;
-        hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+        standard_metadata.egress_spec = port; // 出力ポートをテーブルエントリの引数 (port) に更新
+        hdr.ethernet.srcAddr = hdr.ethernet.dstAddr; // src mac address をルーターのアドレスに更新
+        hdr.ethernet.dstAddr = dstAddr; // dst mac address をテーブルエントリの引数 (dstAddr) に更新
+        hdr.ipv4.ttl = hdr.ipv4.ttl - 1; // ttl 更新
     }
 
     table ipv4_lpm {
@@ -157,7 +157,7 @@ control MyComputeChecksum(inout headers  hdr, inout metadata meta) {
 *************************************************************************/
 
 control MyDeparser(packet_out packet, in headers hdr) {
-    apply {
+    apply { // ビット順序のまま組み立て
         packet.emit(hdr.ethernet);
         packet.emit(hdr.ipv4);
     }
