@@ -41,15 +41,15 @@ def writeTunnelRules(p4info_helper, ingress_sw, egress_sw, tunnel_id,
     """
     # 1) Tunnel Ingress Rule
     table_entry = p4info_helper.buildTableEntry(
-        table_name="MyIngress.ipv4_lpm",
+        table_name="MyIngress.ipv4_lpm", # P4 ファイル側で定義したテーブル
         match_fields={
-            "hdr.ipv4.dstAddr": (dst_ip_addr, 32)
+            "hdr.ipv4.dstAddr": (dst_ip_addr, 32) # 宛先IPアドレスが完全一致したら
         },
-        action_name="MyIngress.myTunnel_ingress",
+        action_name="MyIngress.myTunnel_ingress", # アクション名 トンネルヘッダを装着する処理
         action_params={
-            "dst_id": tunnel_id,
+            "dst_id": tunnel_id, # 引数 トンネルヘッダ内の dst_id 蘭に書き込むID
         })
-    ingress_sw.WriteTableEntry(table_entry)
+    ingress_sw.WriteTableEntry(table_entry) # 入口スイッチへ gRPC 経由で送信
     print("Installed ingress tunnel rule on %s" % ingress_sw.name)
 
     # 2) Tunnel Transit Rule
@@ -71,15 +71,15 @@ def writeTunnelRules(p4info_helper, ingress_sw, egress_sw, tunnel_id,
     # TODO build the transit rule
     # TODO install the transit rule on the ingress switch
     table_entry = p4info_helper.buildTableEntry(
-        table_name="MyIngress.myTunnel_exact",
+        table_name="MyIngress.myTunnel_exact", # トンネル ID をキーとしたテーブル
         match_fields={
-            "hdr.myTunnel.dst_id": tunnel_id
+            "hdr.myTunnel.dst_id": tunnel_id # トンネル ID が一致したら
         },
-        action_name="MyIngress.myTunnel_forward",
+        action_name="MyIngress.myTunnel_forward", # 実行アクション そのまま転送
         action_params={
-            "port": SWITCH_TO_SWITCH_PORT
+            "port": SWITCH_TO_SWITCH_PORT # アクション引数 ポート
         })
-    ingress_sw.WriteTableEntry(table_entry)
+    ingress_sw.WriteTableEntry(table_entry) # 入口スイッチに中継処理を書き込む
     print("Installed transit tunnel rule on %s" % ingress_sw.name)
 
     # 3) Tunnel Egress Rule
@@ -88,16 +88,16 @@ def writeTunnelRules(p4info_helper, ingress_sw, egress_sw, tunnel_id,
     # In general, you will need to keep track of which port the host is
     # connected to.
     table_entry = p4info_helper.buildTableEntry(
-        table_name="MyIngress.myTunnel_exact",
+        table_name="MyIngress.myTunnel_exact", 
         match_fields={
-            "hdr.myTunnel.dst_id": tunnel_id
+            "hdr.myTunnel.dst_id": tunnel_id # key
         },
-        action_name="MyIngress.myTunnel_egress",
+        action_name="MyIngress.myTunnel_egress", # 出口処理を呼び出す
         action_params={
-            "dstAddr": dst_eth_addr,
-            "port": SWITCH_TO_HOST_PORT
+            "dstAddr": dst_eth_addr, # 引数 宛先macアドレスの指定
+            "port": SWITCH_TO_HOST_PORT 
         })
-    egress_sw.WriteTableEntry(table_entry)
+    egress_sw.WriteTableEntry(table_entry)  # 出口スイッチへ gRPC 経由で送信
     print("Installed egress tunnel rule on %s" % egress_sw.name)
 
 
@@ -109,14 +109,15 @@ def readTableRules(p4info_helper, sw):
     :param sw: the switch connection
     """
     print('\n----- Reading tables rules for %s -----' % sw.name)
-    for response in sw.ReadTableEntries():
+    for response in sw.ReadTableEntries(): # 全テーブルエントリを取得
         for entity in response.entities:
             entry = entity.table_entry
             # TODO For extra credit, you can use the p4info_helper to translate
             #      the IDs in the entry to names
-            table_name = p4info_helper.get_tables_name(entry.table_id)
+            table_name = p4info_helper.get_tables_name(entry.table_id) # テーブル名取得
             print('%s: ' % table_name, end=' ')
-            for m in entry.match:
+            # アクション名とパラメータを取得
+            for m in entry.match: 
                 print(p4info_helper.get_match_field_name(table_name, m.field_id), end=' ')
                 print('%r' % (p4info_helper.get_match_field_value(m),), end=' ')
             action = entry.action.action
@@ -137,6 +138,7 @@ def printCounter(p4info_helper, sw, counter_name, index):
     :param sw:  the switch connection
     :param counter_name: the name of the counter from the P4 program
     :param index: the counter index (in our case, the tunnel ID)
+    各トンネルを通ったパケット数のカウント
     """
     for response in sw.ReadCounters(p4info_helper.get_counters_id(counter_name), index):
         for entity in response.entities:
@@ -161,6 +163,7 @@ def main(p4info_file_path, bmv2_file_path):
         # Create a switch connection object for s1 and s2;
         # this is backed by a P4Runtime gRPC connection.
         # Also, dump all P4Runtime messages sent to switch to given txt files.
+        # 実際のスイッチに対して、gPRC 接続を開始
         s1 = p4runtime_lib.bmv2.Bmv2SwitchConnection(
             name='s1',
             address='127.0.0.1:50051',
@@ -174,10 +177,12 @@ def main(p4info_file_path, bmv2_file_path):
 
         # Send master arbitration update message to establish this controller as
         # master (required by P4Runtime before performing any other write operation)
+        # 書き込み許可の取得
         s1.MasterArbitrationUpdate()
         s2.MasterArbitrationUpdate()
 
         # Install the P4 program on the switches
+        # 知能の注入
         s1.SetForwardingPipelineConfig(p4info=p4info_helper.p4info,
                                        bmv2_json_file_path=bmv2_file_path)
         print("Installed P4 Program using SetForwardingPipelineConfig on s1")
@@ -186,6 +191,7 @@ def main(p4info_file_path, bmv2_file_path):
         print("Installed P4 Program using SetForwardingPipelineConfig on s2")
 
         # Write the rules that tunnel traffic from h1 to h2
+        # トンネルルール書き込み
         writeTunnelRules(p4info_helper, ingress_sw=s1, egress_sw=s2, tunnel_id=100,
                          dst_eth_addr="08:00:00:00:02:22", dst_ip_addr="10.0.2.2")
 
@@ -198,6 +204,7 @@ def main(p4info_file_path, bmv2_file_path):
         readTableRules(p4info_helper, s2)
 
         # Print the tunnel counters every 2 seconds
+        # 監視・カウンター
         while True:
             sleep(2)
             print('\n----- Reading tunnel counters -----')

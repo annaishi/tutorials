@@ -67,8 +67,8 @@ parser MyParser(packet_in packet,
     state parse_ethernet {
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType) {
-            TYPE_MYTUNNEL: parse_myTunnel;
-            TYPE_IPV4: parse_ipv4;
+            TYPE_MYTUNNEL: parse_myTunnel; // 出口スイッチ用
+            TYPE_IPV4: parse_ipv4; // 入口スイッチ用
             default: accept;
         }
     }
@@ -112,14 +112,14 @@ control MyIngress(inout headers hdr,
         mark_to_drop(standard_metadata);
     }
 
-    action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) {
+    action ipv4_forward(macAddr_t dstAddr, egressSpec_t port) { // 普通のルーター
         standard_metadata.egress_spec = port;
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
 
-    action myTunnel_ingress(bit<16> dst_id) {
+    action myTunnel_ingress(bit<16> dst_id) { // 入口 ヘッダを装着
         hdr.myTunnel.setValid();
         hdr.myTunnel.dst_id = dst_id;
         hdr.myTunnel.proto_id = hdr.ethernet.etherType;
@@ -127,11 +127,11 @@ control MyIngress(inout headers hdr,
         ingressTunnelCounter.count((bit<32>) hdr.myTunnel.dst_id);
     }
 
-    action myTunnel_forward(egressSpec_t port) {
+    action myTunnel_forward(egressSpec_t port) { // 中継
         standard_metadata.egress_spec = port;
     }
 
-    action myTunnel_egress(macAddr_t dstAddr, egressSpec_t port) {
+    action myTunnel_egress(macAddr_t dstAddr, egressSpec_t port) { // 出口 ヘッダ削除
         standard_metadata.egress_spec = port;
         hdr.ethernet.dstAddr = dstAddr;
         hdr.ethernet.etherType = hdr.myTunnel.proto_id;
@@ -139,7 +139,7 @@ control MyIngress(inout headers hdr,
         egressTunnelCounter.count((bit<32>) hdr.myTunnel.dst_id);
     }
 
-    table ipv4_lpm {
+    table ipv4_lpm { // トンネルの入口
         key = {
             hdr.ipv4.dstAddr: lpm;
         }
@@ -153,7 +153,7 @@ control MyIngress(inout headers hdr,
         default_action = NoAction();
     }
 
-    table myTunnel_exact {
+    table myTunnel_exact { // トンネルの中継・出口
         key = {
             hdr.myTunnel.dst_id: exact;
         }
@@ -167,14 +167,14 @@ control MyIngress(inout headers hdr,
     }
 
     apply {
-        if (hdr.ipv4.isValid() && !hdr.myTunnel.isValid()) {
+        if (hdr.ipv4.isValid() && !hdr.myTunnel.isValid()) { // IPv4 はあるけど、トンネルヘッダはない
             // Process only non-tunneled IPv4 packets.
-            ipv4_lpm.apply();
+            ipv4_lpm.apply(); // トンネルヘッダ装着
         }
 
-        if (hdr.myTunnel.isValid()) {
+        if (hdr.myTunnel.isValid()) { // トンネルヘッダがある
             // Process all tunneled packets.
-            myTunnel_exact.apply();
+            myTunnel_exact.apply(); // そのまま転送 or ヘッダを脱がせる
         }
     }
 }
