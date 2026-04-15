@@ -102,10 +102,10 @@ control MyIngress(inout headers hdr,
     action drop() {
         mark_to_drop(standard_metadata);
     }
-    action set_ecmp_select(bit<16> ecmp_base, bit<32> ecmp_count) {
+    action set_ecmp_select(bit<16> ecmp_base, bit<32> ecmp_count) { // 5tuple のハッシュ計算
         hash(meta.ecmp_select,
             HashAlgorithm.crc16,
-            ecmp_base,
+            ecmp_base, // 分散先の数 ハッシュ計算はこの範囲内に収められる
             { hdr.ipv4.srcAddr,
               hdr.ipv4.dstAddr,
               hdr.ipv4.protocol,
@@ -113,13 +113,13 @@ control MyIngress(inout headers hdr,
               hdr.tcp.dstPort },
             ecmp_count);
     }
-    action set_nhop(bit<48> nhop_dmac, bit<32> nhop_ipv4, bit<9> port) {
+    action set_nhop(bit<48> nhop_dmac, bit<32> nhop_ipv4, bit<9> port) { // 選ばれた経路に対してヘッダ処理
         hdr.ethernet.dstAddr = nhop_dmac;
         hdr.ipv4.dstAddr = nhop_ipv4;
         standard_metadata.egress_spec = port;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
     }
-    table ecmp_group {
+    table ecmp_group { // 宛先に対して、分散対象かを決定
         key = {
             hdr.ipv4.dstAddr: lpm;
         }
@@ -129,7 +129,7 @@ control MyIngress(inout headers hdr,
         }
         size = 1024;
     }
-    table ecmp_nhop {
+    table ecmp_nhop { // ハッシュ値に対して、出力ポートを決定
         key = {
             meta.ecmp_select: exact;
         }
@@ -157,12 +157,12 @@ control MyEgress(inout headers hdr,
                  inout standard_metadata_t standard_metadata) {
 
     action rewrite_mac(bit<48> smac) {
-        hdr.ethernet.srcAddr = smac;
+        hdr.ethernet.srcAddr = smac; // 出力ポートに応じて、送信元MACアドレスを変更
     }
     action drop() {
         mark_to_drop(standard_metadata);
     }
-    table send_frame {
+    table send_frame { // 出力ポートに対して、送信元MACアドレスを決定
         key = {
             standard_metadata.egress_port: exact;
         }

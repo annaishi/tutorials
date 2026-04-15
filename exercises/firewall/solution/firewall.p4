@@ -191,16 +191,16 @@ control MyIngress(inout headers hdr,
             ipv4_lpm.apply();
             if (hdr.tcp.isValid()){
                 direction = 0; // default
-                if (check_ports.apply().hit) {
+                if (check_ports.apply().hit) { // 入力ポートをチェック
                     // test and set the bloom filter
-                    if (direction == 0) {
+                    if (direction == 0) { // 内部
                         compute_hashes(hdr.ipv4.srcAddr, hdr.ipv4.dstAddr, hdr.tcp.srcPort, hdr.tcp.dstPort);
                     }
-                    else {
+                    else { // 外部
                         compute_hashes(hdr.ipv4.dstAddr, hdr.ipv4.srcAddr, hdr.tcp.dstPort, hdr.tcp.srcPort);
                     }
                     // Packet comes from internal network
-                    if (direction == 0){
+                    if (direction == 0){ // 許可リストへ登録
                         // If there is a syn we update the bloom filter and add the entry
                         if (hdr.tcp.syn == 1){
                             bloom_filter_1.write(reg_pos_one, 1);
@@ -208,12 +208,12 @@ control MyIngress(inout headers hdr,
                         }
                     }
                     // Packet comes from outside
-                    else if (direction == 1){
+                    else if (direction == 1){ // 許可リストを確認
                         // Read bloom filter cells to check if there are 1's
                         bloom_filter_1.read(reg_val_one, reg_pos_one);
                         bloom_filter_2.read(reg_val_two, reg_pos_two);
                         // only allow flow to pass if both entries are set
-                        if (reg_val_one != 1 || reg_val_two != 1){
+                        if (reg_val_one != 1 || reg_val_two != 1){ // 内部から開始されていない→許可されていない
                             drop();
                         }
                     }

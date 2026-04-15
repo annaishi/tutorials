@@ -186,7 +186,7 @@ control MyIngress(inout headers_t hdr,
         meta.punt_reason = punt_reason;
         meta.opcode = opcode;
     }
-    action send_copy_to_controller(
+    action send_copy_to_controller( // コントローラへ送信アクション
         PuntReason_t       punt_reason,
         ControllerOpcode_t opcode)
     {
@@ -198,7 +198,7 @@ control MyIngress(inout headers_t hdr,
     action drop_packet() {
         mark_to_drop(standard_metadata);
     }
-    action cached_action (
+    action cached_action ( // キャッシュ的中時
         PortId_t port,
         bit<1> decrement_ttl,
         bit<6> new_dscp,
@@ -209,12 +209,12 @@ control MyIngress(inout headers_t hdr,
         hdr.ipv4.diffserv[7:2] = new_dscp;
         hdr.ethernet.dstAddr = dst_eth_addr;
     }
-    action flow_unknown () {
-        send_copy_to_controller(PuntReason_t.FLOW_UNKNOWN,
+    action flow_unknown () { // 未知フロー
+        send_copy_to_controller(PuntReason_t.FLOW_UNKNOWN, // コントローラへ送信
             ControllerOpcode_t.NO_OP);
-        drop_packet();
+        drop_packet(); // 元パケットは一旦 drop
     }
-    table flow_cache {
+    table flow_cache { // フローキャッシュテーブル
         key = {
             hdr.ipv4.protocol : exact;
             hdr.ipv4.srcAddr : exact;
@@ -232,16 +232,16 @@ control MyIngress(inout headers_t hdr,
     }
 
     apply {
-        if (hdr.packet_out.isValid()) {
+        if (hdr.packet_out.isValid()) { // コントローラからの packet_out なのかを判断
             // Process packet from controller
             ingressPktOutCounter.count((bit<32>)hdr.ipv4.dstAddr[5:0]);
             switch (hdr.packet_out.opcode) {
-                ControllerOpcode_t.SEND_TO_PORT_IN_OPERAND0: {
+                ControllerOpcode_t.SEND_TO_PORT_IN_OPERAND0: { // 指定されたポート（operand0）から外に出す命令
                     standard_metadata.egress_spec = (PortId_t) hdr.packet_out.operand0;
-                    hdr.packet_out.setInvalid();
+                    hdr.packet_out.setInvalid(); // packet_out ヘッダを無効化
                 }
                 default: {
-                    send_to_controller_with_details(
+                    send_to_controller_with_details( // 認識不明な命令として controller に送信
                         PuntReason_t.UNRECOGNIZED_OPCODE,
                         hdr.packet_out.opcode);
                     hdr.packet_out.setInvalid();
@@ -278,8 +278,8 @@ control MyEgress(inout headers_t hdr,
         egressPktInCounter.count((bit<32>)hdr.ipv4.dstAddr[5:0]);
     }
     apply {
-        if (standard_metadata.egress_port == CPU_PORT) {
-            prepend_packet_in_hdr(meta.punt_reason, meta.ingress_port);
+        if (standard_metadata.egress_port == CPU_PORT) { // コントローラにつながるポート
+            prepend_packet_in_hdr(meta.punt_reason, meta.ingress_port); // 専用のヘッダを付加
         } else {
             // Allow the packet to go out without further processing.
         }

@@ -123,7 +123,7 @@ control MyIngress(inout headers hdr,
 /*************************************************************************
 ****************  E G R E S S   P R O C E S S I N G   *******************
 *************************************************************************/
-
+// 輻輳検出の通知のために、ipv4 header の ecn を 3 にする
 control MyEgress(inout headers hdr,
                  inout metadata meta,
                  inout standard_metadata_t standard_metadata) {
